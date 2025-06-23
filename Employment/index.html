@@ -220,11 +220,7 @@
 
         <h4>Apply Here</h4>
         <div class="form text-start">
-          <form
-            action="/.netlify/functions/submit"
-            method="post"
-            enctype="multipart/form-data"
-          >
+          <form id="apply-form" enctype="multipart/form-data">
             <input
               type="text"
               id="floatingInput"
@@ -299,9 +295,10 @@
               </small>
             </div>
             <br />
-
+            <div id="status"></div>
             <div class="text-center">
               <input
+                id="submit-button"
                 type="submit"
                 value="Submit Application"
                 class="py-3 px-5 btn btn-outline-primary"
@@ -339,5 +336,45 @@
         <small>Copyright © 2025 DAVI PACE INC - All Rights Reserved.</small>
       </div>
     </div>
+    <script>
+      document
+        .getElementById("apply-form")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+
+          const form = e.target;
+          const submitBtn = document.getElementById("submit-button");
+          const statusEl = document.getElementById("status");
+
+          // Disable the button and show loading
+          submitBtn.disabled = true;
+          submitBtn.textContent = "Submitting...";
+          statusEl.textContent = "";
+
+          const formData = new FormData(form);
+
+          try {
+            const response = await fetch("/.netlify/functions/submit", {
+              method: "POST",
+              body: formData,
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+              statusEl.textContent = "✅ Application submitted!";
+              form.reset();
+            } else {
+              statusEl.textContent = "❌ Submission failed. Please try again.";
+            }
+          } catch (err) {
+            statusEl.textContent = "⚠️ Error occurred during submission.";
+          }
+
+          // Re-enable the button
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Submit";
+        });
+    </script>
   </body>
 </html>

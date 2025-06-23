@@ -1,6 +1,7 @@
 import Busboy from "busboy";
 import https from "https";
 import { Buffer } from "buffer";
+import FormData from "form-data";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
@@ -14,7 +15,7 @@ export const handler = async (event) => {
   }
 
   return new Promise((resolve, reject) => {
-    const busboy = Busboy({ headers: event.headers }); // note: no `new` here
+    const busboy = Busboy({ headers: event.headers }); // no `new` needed in ESM
     const formData = {};
     const files = [];
 
@@ -38,7 +39,7 @@ export const handler = async (event) => {
     busboy.on("finish", async () => {
       const { name, phone, email, role } = formData;
 
-      const message = `\n\n📥 *New Application Received*\n\n👤 *Name*: ${name}\n📞 *Phone*: ${phone}\n📧 *Email*: ${email}\n💼 *Role*: ${role}`;
+      const message = `📥 *New Application Received*\n\n👤 *Name*: ${name}\n📞 *Phone*: ${phone}\n📧 *Email*: ${email}\n💼 *Role*: ${role}`;
 
       try {
         await sendTelegramMessage(message);
@@ -60,10 +61,13 @@ export const handler = async (event) => {
       }
     });
 
-    busboy.end(Buffer.from(event.body, "base64"));
+    // Parse incoming base64-encoded body
+    const buffer = Buffer.from(event.body, "base64");
+    busboy.end(buffer);
   });
 };
 
+// Send message to Telegram
 function sendTelegramMessage(text) {
   const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage?chat_id=${CHAT_ID}&text=${encodeURIComponent(
     text
@@ -79,43 +83,34 @@ function sendTelegramMessage(text) {
   });
 }
 
+// Send file to Telegram using FormData (safe and works!)
 function sendTelegramFile(file) {
   return new Promise((resolve, reject) => {
-    const boundary = "--------------------------" + Date.now().toString(16);
-
-    const payloadParts = [
-      `--${boundary}`,
-      `Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n${CHAT_ID}`,
-      `--${boundary}`,
-      `Content-Disposition: form-data; name=\"document\"; filename=\"${file.filename}\"`,
-      `Content-Type: ${file.mimetype}\r\n`,
-      file.buffer,
-      `--${boundary}--`,
-    ];
-
-    const body = Buffer.concat(
-      payloadParts.map((part) =>
-        typeof part === "string" ? Buffer.from(part + "\r\n") : part
-      )
-    );
-
-    const options = {
-      hostname: "api.telegram.org",
-      path: `/bot${BOT_TOKEN}/sendDocument`,
-      method: "POST",
-      headers: {
-        "Content-Type": `multipart/form-data; boundary=${boundary}`,
-        "Content-Length": body.length,
-      },
-    };
-
-    const req = https.request(options, (res) => {
-      res.on("data", () => {});
-      res.on("end", resolve);
+    const form = new FormData();
+    form.append("chat_id", CHAT_ID);
+    form.append("document", file.buffer, {
+      filename: file.filename,
+      contentType: file.mimetype,
     });
 
-    req.on("error", reject);
-    req.write(body);
-    req.end();
+    const request = https.request(
+      {
+        hostname: "api.telegram.org",
+        path: `/bot${BOT_TOKEN}/sendDocument`,
+        method: "POST",
+        headers: form.getHeaders(),
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => {
+          console.log("Telegram file response:", data);
+          resolve();
+        });
+      }
+    );
+
+    request.on("error", reject);
+    form.pipe(request);
   });
 }
