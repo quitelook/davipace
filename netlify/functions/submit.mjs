@@ -107,13 +107,23 @@ function sendTelegramFile(file) {
         let data = "";
         res.on("data", (chunk) => (data += chunk));
         res.on("end", () => {
-          console.log("Telegram file response:", data);
-          resolve();
+          console.log("Telegram API Response:", data);
+
+          const parsed = JSON.parse(data);
+          if (parsed.ok) {
+            resolve();
+          } else {
+            reject(new Error(`Telegram Error: ${data}`));
+          }
         });
       }
     );
 
-    request.on("error", reject);
+    request.on("error", (err) => {
+      console.error("Request error:", err);
+      reject(err);
+    });
+
     form.pipe(request);
   });
 }
