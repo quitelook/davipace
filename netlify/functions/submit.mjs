@@ -1,32 +1,48 @@
-import Busboy from "busboy";
+// netlify/functions/submit.js
+import { Buffer } from "buffer";
+import { tmpdir } from "os";
+import { join } from "path";
 import fs from "fs";
-import os from "os";
-import path from "path";
+import fsp from "fs/promises";
 import https from "https";
-import FormData from "form-data";
+import Busboy from "busboy";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method Not Allowed" };
+    return {
+      statusCode: 405,
+      body: "Method Not Allowed",
+    };
   }
 
-  return await new Promise((resolve, reject) => {
-    const busboy = Busboy({
-      headers: event.headers,
-    });
+  const contentType =
+    event.headers["content-type"] || event.headers["Content-Type"];
+  const buffer = Buffer.from(
+    event.body,
+    event.isBase64Encoded ? "base64" : "utf8"
+  );
 
-    const fields = {};
-    const files = [];
+  const fields = {};
+  const files = [];
 
-    busboy.on("field", (fieldname, value) => {
-      fields[fieldname] = value;
+  return new Promise((resolve, reject) => {
+    const busboy = new Busboy({ headers: { "content-type": contentType } });
+
+    busboy.on("field", (fieldname, val) => {
+      fields[fieldname] = val;
     });
 
     busboy.on("file", (fieldname, file, filename, encoding, mimetype) => {
-      const filepath = path.join(os.tmpdir(), filename);
+      if (typeof filename !== "string") {
+        console.warn(`Invalid filename for field ${fieldname}:`, filename);
+        file.resume(); // Skip this file
+        return;
+      }
+
+      const filepath = join(tmpdir(), filename);
       const writeStream = fs.createWriteStream(filepath);
 
       file.pipe(writeStream);
@@ -42,13 +58,14 @@ export const handler = async (event) => {
     });
 
     busboy.on("finish", async () => {
-      const message = `📥 *New Application Received*\n\n👤 *Name*: ${fields.name}\n📞 *Phone*: ${fields.phone}\n📧 *Email*: ${fields.email}\n💼 *Role*: ${fields.role}`;
-
       try {
+        const { name, phone, email, role } = fields;
+        const message = `📥 *New Application Received*\n\n👤 *Name*: ${name}\n📞 *Phone*: ${phone}\n📧 *Email*: ${email}\n💼 *Role*: ${role}`;
+
         await sendTelegramMessage(message);
 
         for (const file of files) {
-          const buffer = fs.readFileSync(file.filepath);
+          const buffer = await fsp.readFile(file.filepath);
           await sendTelegramFile(file.filename, file.mimetype, buffer);
         }
 
@@ -57,16 +74,25 @@ export const handler = async (event) => {
           body: JSON.stringify({ success: true }),
         });
       } catch (error) {
-        console.error("Error sending Telegram message:", error);
+        console.error("Processing error:", error);
         resolve({
           statusCode: 500,
-          body: JSON.stringify({ success: false, error: "Failed to send" }),
+          body: JSON.stringify({
+            success: false,
+            error: "Internal server error",
+          }),
         });
       }
     });
 
-    const encoding = event.isBase64Encoded ? "base64" : "utf8";
-    const buffer = Buffer.from(event.body, encoding);
+    busboy.on("error", (error) => {
+      console.error("Busboy error:", error);
+      reject({
+        statusCode: 400,
+        body: JSON.stringify({ success: false, error: "Form parsing error" }),
+      });
+    });
+
     busboy.end(buffer);
   });
 };
@@ -90,7 +116,10 @@ function sendTelegramFile(filename, mimetype, buffer) {
   return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append("chat_id", CHAT_ID);
-    form.append("document", buffer, { filename, contentType: mimetype });
+    form.append("document", buffer, {
+      filename,
+      contentType: mimetype,
+    });
 
     const req = https.request(
       {
