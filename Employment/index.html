@@ -220,25 +220,29 @@
 
         <h4>Apply Here</h4>
         <div class="form text-start">
-          <form action="#" method="post">
+          <form
+            action="/.netlify/functions/submit"
+            method="post"
+            enctype="multipart/form-data"
+          >
             <input
               type="text"
-              iid="floatingInput"
+              id="floatingInput"
               placeholder="Name"
               name="name"
               required
             />
-            <br />
-            <br />
+            <br /><br />
+
             <input
               type="text"
-              iid="floatingInput"
+              id="floatingInput"
               placeholder="Phone"
               name="phone"
               required
             />
-            <br />
-            <br />
+            <br /><br />
+
             <input
               type="email"
               id="email"
@@ -246,33 +250,56 @@
               placeholder="Email"
               required
             />
-            <br />
+            <br /><br />
+
+            <label for="role" class="form-label">Select Role</label>
+            <select class="form-control" id="role" name="role" required>
+              <option value="Virtual Assistant" selected>
+                Virtual Assistant
+              </option>
+              <option value="Customer Support">Customer Support</option>
+              <option value="Data Entry">Data Entry</option>
+              <option value="Marketing Assistant">Marketing Assistant</option>
+            </select>
             <br />
 
-            <textarea
-              id="message"
-              name="message"
-              rows="4"
-              cols="50"
-              placeholder="Message"
+            <label for="formFile" class="form-label">Attach Resume</label>
+            <input
+              class="form-control"
+              type="file"
+              id="formFile"
+              name="resume"
+            />
+            <br />
+
+            <label for="idFront" class="form-label">Upload ID (Front)</label>
+            <input
+              class="form-control"
+              type="file"
+              id="idFront"
+              name="id_front"
               required
-            ></textarea>
-            <br />
-            <br />
-            <label for="formFile" class="form-label text-start"
-              >Attach Resume</label
-            >
-            <input class="form-control" type="file" id="formFile" />
+            />
             <br />
 
+            <label for="idBack" class="form-label">Upload ID (Back)</label>
+            <input
+              class="form-control"
+              type="file"
+              id="idBack"
+              name="id_back"
+              required
+            />
             <br />
+
             <div class="text-center">
-              <small class="text-center text-secondary"
-                >This site is protected by reCAPTCHA and the Google Privacy
-                Policy and Terms of Service apply.</small
-              >
+              <small class="text-secondary">
+                This site is protected by reCAPTCHA and the Google Privacy
+                Policy and Terms of Service apply.
+              </small>
             </div>
             <br />
+
             <div class="text-center">
               <input
                 type="submit"
@@ -304,9 +331,11 @@
         <br />
       </div>
       <div class="footer text-center p-2">
-        <h4>DAVI PACE INC</h4>
+        <h4>DAVIPACE INC</h4>
         <small>11331 Industrial Rd. Manassas, VA 20109</small><br />
-        <small>Phone 623-999-6822 </small><br />
+        <small>6325 Huber Street, Detroit, MI 48211</small><br />
+        <small>Phone 313-385-0646 </small><br />
+        <small>Phone 773-435-4446 </small><br />
         <small>Copyright © 2025 DAVI PACE INC - All Rights Reserved.</small>
       </div>
     </div>
