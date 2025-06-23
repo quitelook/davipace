@@ -27,13 +27,19 @@ export const handler = async (event) => {
       const buffers = [];
       file.on("data", (data) => buffers.push(data));
       file.on("end", () => {
-        console.log("File received:", filename);
-        files.push({
-          fieldname,
-          filename,
-          mimetype,
-          buffer: Buffer.concat(buffers),
-        });
+        if (filename) {
+          const buffer = Buffer.concat(buffers);
+          console.log("✅ File received:", filename, "Size:", buffer.length);
+
+          files.push({
+            fieldname,
+            filename,
+            mimetype,
+            buffer,
+          });
+        } else {
+          console.warn("⚠️ Skipping unnamed file input");
+        }
       });
     });
 
@@ -54,7 +60,7 @@ export const handler = async (event) => {
           body: JSON.stringify({ success: true }),
         });
       } catch (err) {
-        console.error("Error sending to Telegram:", err);
+        console.error("❌ Error sending to Telegram:", err);
         reject({
           statusCode: 500,
           body: JSON.stringify({ error: "Failed to send application." }),
@@ -62,16 +68,16 @@ export const handler = async (event) => {
       }
     });
 
-    // Correct body decoding for base64 uploads from Netlify
     const buffer = event.isBase64Encoded
       ? Buffer.from(event.body, "base64")
       : Buffer.from(event.body, "utf8");
 
-    console.log("Parsing incoming request...");
+    console.log("🔍 Parsing incoming request...");
     busboy.end(buffer);
   });
 };
 
+// Send plain Telegram message
 function sendTelegramMessage(text) {
   const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage?chat_id=${CHAT_ID}&text=${encodeURIComponent(
     text
@@ -80,28 +86,34 @@ function sendTelegramMessage(text) {
   return new Promise((resolve, reject) => {
     https
       .get(url, (res) => {
-        res.on("data", () => {});
+        res.on("data", () => {}); // No-op
         res.on("end", resolve);
       })
       .on("error", reject);
   });
 }
 
+// Send file to Telegram
 function sendTelegramFile(file) {
   return new Promise((resolve, reject) => {
-    // Ensure file is valid
-    if (!file || !file.filename || !file.buffer) {
-      console.warn("Skipping invalid file:", file);
-      return resolve(); // Skip and continue
+    const { filename, mimetype, buffer } = file;
+
+    // ✅ Strict validation
+    if (
+      typeof filename !== "string" ||
+      !filename ||
+      !(buffer instanceof Buffer)
+    ) {
+      console.warn("⚠️ Invalid file skipped:", file);
+      return resolve(); // Skip this file
     }
 
     const form = new FormData();
-
     form.append("chat_id", CHAT_ID);
-    form.append("document", file.buffer, {
-      filename: file.filename,
-      contentType: file.mimetype,
-      knownLength: file.buffer.length,
+    form.append("document", buffer, {
+      filename,
+      contentType: mimetype,
+      knownLength: buffer.length,
     });
 
     const request = https.request(
@@ -115,7 +127,7 @@ function sendTelegramFile(file) {
         let data = "";
         res.on("data", (chunk) => (data += chunk));
         res.on("end", () => {
-          console.log("Telegram file response:", data);
+          console.log("📨 Telegram file upload response:", data);
           try {
             const json = JSON.parse(data);
             if (json.ok) {
