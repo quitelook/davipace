@@ -1,12 +1,10 @@
-import { Readable } from "stream";
-import formidable from "formidable";
-import fs from "fs/promises";
+import { parseMultipartFormData } from "@netlify/functions";
 import https from "https";
 import FormData from "form-data";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-//
+
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return {
@@ -15,66 +13,33 @@ export const handler = async (event) => {
     };
   }
 
-  const contentType =
-    event.headers["content-type"] || event.headers["Content-Type"];
-  const buffer = Buffer.from(
-    event.body,
-    event.isBase64Encoded ? "base64" : "utf8"
-  );
+  try {
+    const formData = await parseMultipartFormData(event);
 
-  const form = formidable({ multiples: true, keepExtensions: true });
+    const { name, phone, email, role, resume, id_front, id_back } = formData;
 
-  return new Promise((resolve) => {
-    const stream = Readable.from(buffer);
-    stream.headers = { "content-type": contentType };
+    const message = `📥 *New Application Received*\n\n👤 *Name*: ${name}\n📞 *Phone*: ${phone}\n📧 *Email*: ${email}\n💼 *Role*: ${role}`;
+    await sendTelegramMessage(message);
 
-    form.parse(stream, async (err, fields, files) => {
-      if (err) {
-        console.error("Form parse error:", err);
-        return resolve({
-          statusCode: 400,
-          body: JSON.stringify({
-            success: false,
-            error: "Form parsing failed",
-          }),
-        });
+    // Send files if present
+    const fileFields = [resume, id_front, id_back];
+    for (const file of fileFields) {
+      if (file && file.content) {
+        await sendTelegramFile(file.filename, file.contentType, file.content);
       }
+    }
 
-      const { name, phone, email, role } = fields;
-      const message = `📥 *New Application Received*\n\n👤 *Name*: ${name}\n📞 *Phone*: ${phone}\n📧 *Email*: ${email}\n💼 *Role*: ${role}`;
-
-      try {
-        await sendTelegramMessage(message);
-
-        const fileFields = ["resume", "id_front", "id_back"];
-        for (const field of fileFields) {
-          const file = files[field];
-          if (file && file.filepath) {
-            const buffer = await fs.readFile(file.filepath);
-            await sendTelegramFile(
-              file.originalFilename,
-              file.mimetype,
-              buffer
-            );
-          }
-        }
-
-        return resolve({
-          statusCode: 200,
-          body: JSON.stringify({ success: true }),
-        });
-      } catch (err) {
-        console.error("Telegram error:", err);
-        return resolve({
-          statusCode: 500,
-          body: JSON.stringify({
-            success: false,
-            error: "Telegram send failed",
-          }),
-        });
-      }
-    });
-  });
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ success: true }),
+    };
+  } catch (err) {
+    console.error("Error:", err);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ success: false, error: "Upload failed" }),
+    };
+  }
 };
 
 function sendTelegramMessage(text) {
@@ -85,7 +50,7 @@ function sendTelegramMessage(text) {
   return new Promise((resolve, reject) => {
     https
       .get(url, (res) => {
-        res.on("data", () => {});
+        res.on("data", () => {}); // discard response body
         res.on("end", resolve);
       })
       .on("error", reject);
