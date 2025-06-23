@@ -1,11 +1,12 @@
-// netlify/functions/submit.js
+// netlify/functions/submit.mjs
 import { Buffer } from "buffer";
 import { tmpdir } from "os";
 import { join } from "path";
 import fs from "fs";
 import fsp from "fs/promises";
 import https from "https";
-import Busboy from "busboy";
+import * as Busboy from "busboy";
+import FormData from "form-data";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
@@ -29,7 +30,9 @@ export const handler = async (event) => {
   const files = [];
 
   return new Promise((resolve, reject) => {
-    const busboy = new Busboy({ headers: { "content-type": contentType } });
+    const busboy = Busboy.default
+      ? new Busboy.default({ headers: { "content-type": contentType } })
+      : new Busboy({ headers: { "content-type": contentType } });
 
     busboy.on("field", (fieldname, val) => {
       fields[fieldname] = val;
@@ -37,8 +40,7 @@ export const handler = async (event) => {
 
     busboy.on("file", (fieldname, file, filename, encoding, mimetype) => {
       if (typeof filename !== "string") {
-        console.warn(`Invalid filename for field ${fieldname}:`, filename);
-        file.resume(); // Skip this file
+        file.resume();
         return;
       }
 
