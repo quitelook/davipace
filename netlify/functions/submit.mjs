@@ -23,12 +23,13 @@ export const handler = async (event) => {
       formData[fieldname] = value;
     });
 
-    busboy.on("file", (fieldname, file, filename, encoding, mimetype) => {
+    busboy.on("file", (fieldname, fileStream) => {
+      const { filename, encoding, mimeType: mimetype } = fileStream;
+
       const buffers = [];
+      fileStream.on("data", (data) => buffers.push(data));
 
-      file.on("data", (data) => buffers.push(data));
-
-      file.on("end", () => {
+      fileStream.on("end", () => {
         const buffer = Buffer.concat(buffers);
 
         if (!filename || !mimetype || !buffer.length) {
