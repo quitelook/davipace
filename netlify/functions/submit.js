@@ -31,7 +31,12 @@ export const handler = async (event) => {
       file.on("end", () => {
         const buffer = Buffer.concat(buffers);
 
-        if (!filename || !mimetype || !buffer.length) {
+        if (
+          typeof filename !== "string" ||
+          !filename.trim() ||
+          !buffer.length ||
+          typeof mimetype !== "string"
+        ) {
           console.warn("⚠️ Skipping invalid file:", {
             fieldname,
             filename,
@@ -117,15 +122,19 @@ function sendTelegramFile(file) {
       typeof filename !== "string" ||
       !filename ||
       !(buffer instanceof Buffer) ||
-      !mimetype
+      typeof mimetype !== "string"
     ) {
       console.warn("⚠️ Invalid file skipped:", file);
       return resolve(); // Skip this file
     }
 
+    const isImage = mimetype.startsWith("image/");
+    const fieldName = isImage ? "photo" : "document";
+    const apiEndpoint = isImage ? "sendPhoto" : "sendDocument";
+
     const form = new FormData();
     form.append("chat_id", CHAT_ID);
-    form.append("document", buffer, {
+    form.append(fieldName, buffer, {
       filename,
       contentType: mimetype,
       knownLength: buffer.length,
@@ -134,7 +143,7 @@ function sendTelegramFile(file) {
     const request = https.request(
       {
         hostname: "api.telegram.org",
-        path: `/bot${BOT_TOKEN}/sendDocument`,
+        path: `/bot${BOT_TOKEN}/${apiEndpoint}`,
         method: "POST",
         headers: form.getHeaders(),
       },
@@ -142,7 +151,7 @@ function sendTelegramFile(file) {
         let data = "";
         res.on("data", (chunk) => (data += chunk));
         res.on("end", () => {
-          console.log("📨 Telegram file upload response:", data);
+          console.log("📨 Telegram upload response:", data);
           try {
             const json = JSON.parse(data);
             if (json.ok) {
