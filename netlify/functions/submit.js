@@ -1,4 +1,4 @@
-const Busboy = require("busboy");
+const { Busboy } = require("busboy");
 const https = require("https");
 const { Buffer } = require("buffer");
 
