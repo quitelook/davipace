@@ -23,10 +23,9 @@ export const handler = async (event) => {
       formData[fieldname] = value;
     });
 
-    busboy.on("file", (fieldname, fileStream) => {
-      const { filename, encoding, mimeType: mimetype } = fileStream;
-
+    busboy.on("file", (fieldname, fileStream, filename, encoding, mimetype) => {
       const buffers = [];
+
       fileStream.on("data", (data) => buffers.push(data));
 
       fileStream.on("end", () => {
@@ -92,6 +91,7 @@ export const handler = async (event) => {
   });
 };
 
+// Send plain Telegram message
 function sendTelegramMessage(text) {
   const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage?chat_id=${CHAT_ID}&text=${encodeURIComponent(
     text
@@ -110,6 +110,7 @@ function sendTelegramMessage(text) {
   });
 }
 
+// Send file to Telegram
 function sendTelegramFile(file) {
   return new Promise((resolve, reject) => {
     const { filename, mimetype, buffer } = file;
