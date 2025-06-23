@@ -1,19 +1,13 @@
-import { IncomingForm } from "formidable";
+import multiparty from "multiparty";
 import { Buffer } from "buffer";
 import https from "https";
+import FormData from "form-data";
 import fs from "fs";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-// Disable formidable's default file writing
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
-
-export const handler = async (event, context) => {
+export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return {
       statusCode: 405,
@@ -26,52 +20,60 @@ export const handler = async (event, context) => {
     event.isBase64Encoded ? "base64" : "utf8"
   );
 
-  const form = new IncomingForm({
-    multiples: true,
-    keepExtensions: true,
-  });
+  const headers = {
+    "content-type":
+      event.headers["content-type"] || event.headers["Content-Type"],
+  };
 
   return new Promise((resolve, reject) => {
+    const form = new multiparty.Form();
+
+    // Override `req` with simulated stream
     form.parse(
-      { headers: event.headers, buffer },
+      {
+        headers,
+        on: () => {}, // dummy, never used
+        pipe: (dest) => dest.end(buffer),
+      },
       async (err, fields, files) => {
         if (err) {
-          console.error("❌ Error parsing form:", err);
+          console.error("❌ Parse error:", err);
           return reject({
             statusCode: 400,
-            body: JSON.stringify({ error: "Invalid form data" }),
+            body: JSON.stringify({ error: "Invalid form submission" }),
           });
         }
 
-        const { name, phone, email, role } = fields;
-        const message = `📥 *New Application Received*\n\n👤 *Name*: ${name}\n📞 *Phone*: ${phone}\n📧 *Email*: ${email}\n💼 *Role*: ${role}`;
+        const name = fields.name?.[0] || "";
+        const phone = fields.phone?.[0] || "";
+        const email = fields.email?.[0] || "";
+        const role = fields.role?.[0] || "";
 
+        const message = `📥 *New Application Received*\n\n👤 *Name*: ${name}\n📞 *Phone*: ${phone}\n📧 *Email*: ${email}\n💼 *Role*: ${role}`;
         try {
           await sendTelegramMessage(message);
 
-          // Send files (if any)
-          const fileFields = ["resume", "id_front", "id_back"];
-          for (const field of fileFields) {
-            const file = files[field];
-            if (!file) continue;
-
-            const buffer = fs.readFileSync(file.filepath);
-            await sendTelegramFile({
-              buffer,
-              filename: file.originalFilename,
-              mimetype: file.mimetype,
-            });
+          for (const key of ["resume", "id_front", "id_back"]) {
+            const file = files[key]?.[0];
+            if (file) {
+              const fileBuffer = fs.readFileSync(file.path);
+              await sendTelegramFile({
+                buffer: fileBuffer,
+                filename: file.originalFilename,
+                mimetype: file.headers["content-type"],
+              });
+            }
           }
 
           resolve({
             statusCode: 200,
             body: JSON.stringify({ success: true }),
           });
-        } catch (err) {
-          console.error("❌ Telegram send error:", err);
+        } catch (e) {
+          console.error("❌ Telegram error:", e);
           reject({
             statusCode: 500,
-            body: JSON.stringify({ error: "Failed to send application." }),
+            body: JSON.stringify({ error: "Failed to send application" }),
           });
         }
       }
@@ -87,7 +89,7 @@ function sendTelegramMessage(text) {
   return new Promise((resolve, reject) => {
     https
       .get(url, (res) => {
-        res.on("data", () => {}); // no-op
+        res.on("data", () => {});
         res.on("end", resolve);
       })
       .on("error", reject);
