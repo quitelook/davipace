@@ -1,11 +1,11 @@
-const Busboy = require("busboy").default;
-const https = require("https");
-const { Buffer } = require("buffer");
+import Busboy from "busboy";
+import https from "https";
+import { Buffer } from "buffer";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return {
       statusCode: 405,
@@ -14,7 +14,7 @@ exports.handler = async (event) => {
   }
 
   return new Promise((resolve, reject) => {
-    const busboy = new Busboy({ headers: event.headers });
+    const busboy = Busboy({ headers: event.headers }); // note: no `new` here
     const formData = {};
     const files = [];
 
