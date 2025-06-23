@@ -15,7 +15,7 @@ export const handler = async (event) => {
   }
 
   return new Promise((resolve, reject) => {
-    const busboy = Busboy({ headers: event.headers }); // no `new` needed in ESM
+    const busboy = Busboy({ headers: event.headers });
     const formData = {};
     const files = [];
 
@@ -27,6 +27,7 @@ export const handler = async (event) => {
       const buffers = [];
       file.on("data", (data) => buffers.push(data));
       file.on("end", () => {
+        console.log("File received:", filename);
         files.push({
           fieldname,
           filename,
@@ -61,13 +62,16 @@ export const handler = async (event) => {
       }
     });
 
-    // Parse incoming base64-encoded body
-    const buffer = Buffer.from(event.body, "base64");
+    // Correct body decoding for base64 uploads from Netlify
+    const buffer = event.isBase64Encoded
+      ? Buffer.from(event.body, "base64")
+      : Buffer.from(event.body, "utf8");
+
+    console.log("Parsing incoming request...");
     busboy.end(buffer);
   });
 };
 
-// Send message to Telegram
 function sendTelegramMessage(text) {
   const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage?chat_id=${CHAT_ID}&text=${encodeURIComponent(
     text
@@ -83,7 +87,6 @@ function sendTelegramMessage(text) {
   });
 }
 
-// Send file to Telegram using FormData (safe and works!)
 function sendTelegramFile(file) {
   return new Promise((resolve, reject) => {
     const form = new FormData();
