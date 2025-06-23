@@ -1,6 +1,6 @@
 import Busboy from "busboy";
-import { Buffer } from "buffer";
 import https from "https";
+import { Buffer } from "buffer";
 import FormData from "form-data";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -14,65 +14,79 @@ export const handler = async (event) => {
     };
   }
 
-  const contentType =
-    event.headers["content-type"] || event.headers["Content-Type"];
-
-  const buffer = Buffer.from(
-    event.body,
-    event.isBase64Encoded ? "base64" : "utf8"
-  );
-
-  const fields = {};
-  const files = {};
-
   return new Promise((resolve, reject) => {
-    const busboy = new Busboy({ headers: { "content-type": contentType } });
+    const busboy = Busboy({ headers: event.headers });
+    const formData = {};
+    const files = [];
+
+    busboy.on("field", (fieldname, value) => {
+      formData[fieldname] = value;
+    });
 
     busboy.on("file", (fieldname, file, filename, encoding, mimetype) => {
-      const chunks = [];
+      const buffers = [];
 
-      file.on("data", (data) => chunks.push(data));
+      file.on("data", (data) => buffers.push(data));
+
       file.on("end", () => {
-        files[fieldname] = {
+        const buffer = Buffer.concat(buffers);
+
+        if (!filename || !mimetype || !buffer.length) {
+          console.warn("⚠️ Skipping invalid file:", {
+            fieldname,
+            filename,
+            mimetype,
+            size: buffer.length,
+          });
+          return;
+        }
+
+        console.log("✅ File received:", filename, "Size:", buffer.length);
+
+        files.push({
+          fieldname,
           filename,
           mimetype,
-          buffer: Buffer.concat(chunks),
-        };
+          buffer,
+        });
       });
     });
 
-    busboy.on("field", (fieldname, value) => {
-      fields[fieldname] = value;
-    });
-
     busboy.on("finish", async () => {
-      const { name, phone, email, role } = fields;
+      const { name, phone, email, role } = formData;
+
       const message = `📥 *New Application Received*\n\n👤 *Name*: ${name}\n📞 *Phone*: ${phone}\n📧 *Email*: ${email}\n💼 *Role*: ${role}`;
 
       try {
         await sendTelegramMessage(message);
 
-        const fileFields = ["resume", "id_front", "id_back"];
-        for (const field of fileFields) {
-          const file = files[field];
-          if (file) {
-            await sendTelegramFile(file.filename, file.mimetype, file.buffer);
-          }
+        for (const file of files) {
+          console.log(
+            "📤 Sending file to Telegram:",
+            file.filename,
+            file.mimetype
+          );
+          await sendTelegramFile(file);
         }
 
         resolve({
           statusCode: 200,
           body: JSON.stringify({ success: true }),
         });
-      } catch (error) {
-        console.error("Telegram error:", error);
-        resolve({
+      } catch (err) {
+        console.error("❌ Error sending to Telegram:", err);
+        reject({
           statusCode: 500,
-          body: JSON.stringify({ success: false, error: "Telegram failed" }),
+          body: JSON.stringify({ error: "Failed to send application." }),
         });
       }
     });
 
+    const buffer = event.isBase64Encoded
+      ? Buffer.from(event.body, "base64")
+      : Buffer.from(event.body, "utf8");
+
+    console.log("🔍 Parsing incoming request...");
     busboy.end(buffer);
   });
 };
@@ -85,42 +99,71 @@ function sendTelegramMessage(text) {
   return new Promise((resolve, reject) => {
     https
       .get(url, (res) => {
-        res.on("data", () => {});
+        res.on("data", () => {}); // No-op
         res.on("end", resolve);
       })
-      .on("error", reject);
+      .on("error", (err) => {
+        console.error("❌ Message send error:", err);
+        reject(err);
+      });
   });
 }
 
-function sendTelegramFile(filename, mimetype, buffer) {
+function sendTelegramFile(file) {
   return new Promise((resolve, reject) => {
+    const { filename, mimetype, buffer } = file;
+
+    if (
+      typeof filename !== "string" ||
+      !filename ||
+      !(buffer instanceof Buffer) ||
+      !mimetype
+    ) {
+      console.warn("⚠️ Invalid file skipped:", file);
+      return resolve(); // Skip this file
+    }
+
     const form = new FormData();
     form.append("chat_id", CHAT_ID);
-    form.append("document", buffer, { filename, contentType: mimetype });
+    form.append("document", buffer, {
+      filename,
+      contentType: mimetype,
+      knownLength: buffer.length,
+    });
 
-    const req = https.request(
+    const request = https.request(
       {
-        method: "POST",
-        host: "api.telegram.org",
+        hostname: "api.telegram.org",
         path: `/bot${BOT_TOKEN}/sendDocument`,
+        method: "POST",
         headers: form.getHeaders(),
       },
       (res) => {
         let data = "";
         res.on("data", (chunk) => (data += chunk));
         res.on("end", () => {
+          console.log("📨 Telegram file upload response:", data);
           try {
             const json = JSON.parse(data);
-            if (json.ok) resolve();
-            else reject(new Error(data));
+            if (json.ok) {
+              return resolve();
+            } else {
+              return reject(new Error("Telegram error: " + data));
+            }
           } catch (err) {
-            reject(err);
+            return reject(
+              new Error("Failed to parse Telegram response: " + data)
+            );
           }
         });
       }
     );
 
-    form.pipe(req);
-    req.on("error", reject);
+    request.on("error", (err) => {
+      console.error("❌ HTTPS request error:", err);
+      reject(err);
+    });
+
+    form.pipe(request);
   });
 }
