@@ -90,10 +90,12 @@ function sendTelegramMessage(text) {
 function sendTelegramFile(file) {
   return new Promise((resolve, reject) => {
     const form = new FormData();
+
     form.append("chat_id", CHAT_ID);
     form.append("document", file.buffer, {
       filename: file.filename,
       contentType: file.mimetype,
+      knownLength: file.buffer.length,
     });
 
     const request = https.request(
@@ -107,20 +109,19 @@ function sendTelegramFile(file) {
         let data = "";
         res.on("data", (chunk) => (data += chunk));
         res.on("end", () => {
-          console.log("Telegram API Response:", data);
-
-          const parsed = JSON.parse(data);
-          if (parsed.ok) {
+          console.log("Telegram API response:", data);
+          const json = JSON.parse(data);
+          if (json.ok) {
             resolve();
           } else {
-            reject(new Error(`Telegram Error: ${data}`));
+            reject(new Error(`Telegram API error: ${data}`));
           }
         });
       }
     );
 
     request.on("error", (err) => {
-      console.error("Request error:", err);
+      console.error("Telegram file upload error:", err);
       reject(err);
     });
 
