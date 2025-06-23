@@ -1,11 +1,21 @@
-import multiparty from "multiparty";
+// /netlify/functions/submit.js
 import { Buffer } from "buffer";
+import { Readable } from "stream";
+import formidable from "formidable";
 import https from "https";
 import FormData from "form-data";
-import fs from "fs";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+
+function bufferToStream(buffer) {
+  return new Readable({
+    read() {
+      this.push(buffer);
+      this.push(null);
+    },
+  });
+}
 
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -15,69 +25,72 @@ export const handler = async (event) => {
     };
   }
 
-  const buffer = Buffer.from(
-    event.body,
-    event.isBase64Encoded ? "base64" : "utf8"
-  );
+  const contentType =
+    event.headers["content-type"] || event.headers["Content-Type"];
 
-  const headers = {
-    "content-type":
-      event.headers["content-type"] || event.headers["Content-Type"],
-  };
+  const form = formidable({
+    multiples: true,
+    keepExtensions: true,
+  });
 
   return new Promise((resolve, reject) => {
-    const form = new multiparty.Form();
-
-    // Override `req` with simulated stream
-    form.parse(
-      {
-        headers,
-        on: () => {}, // dummy, never used
-        pipe: (dest) => dest.end(buffer),
-      },
-      async (err, fields, files) => {
-        if (err) {
-          console.error("❌ Parse error:", err);
-          return reject({
-            statusCode: 400,
-            body: JSON.stringify({ error: "Invalid form submission" }),
-          });
-        }
-
-        const name = fields.name?.[0] || "";
-        const phone = fields.phone?.[0] || "";
-        const email = fields.email?.[0] || "";
-        const role = fields.role?.[0] || "";
-
-        const message = `📥 *New Application Received*\n\n👤 *Name*: ${name}\n📞 *Phone*: ${phone}\n📧 *Email*: ${email}\n💼 *Role*: ${role}`;
-        try {
-          await sendTelegramMessage(message);
-
-          for (const key of ["resume", "id_front", "id_back"]) {
-            const file = files[key]?.[0];
-            if (file) {
-              const fileBuffer = fs.readFileSync(file.path);
-              await sendTelegramFile({
-                buffer: fileBuffer,
-                filename: file.originalFilename,
-                mimetype: file.headers["content-type"],
-              });
-            }
-          }
-
-          resolve({
-            statusCode: 200,
-            body: JSON.stringify({ success: true }),
-          });
-        } catch (e) {
-          console.error("❌ Telegram error:", e);
-          reject({
-            statusCode: 500,
-            body: JSON.stringify({ error: "Failed to send application" }),
-          });
-        }
-      }
+    const stream = bufferToStream(
+      event.isBase64Encoded
+        ? Buffer.from(event.body, "base64")
+        : Buffer.from(event.body, "utf8")
     );
+
+    stream.headers = {
+      "content-type": contentType,
+    };
+
+    form.parse(stream, async (err, fields, files) => {
+      if (err) {
+        console.error("Form parse error:", err);
+        return resolve({
+          statusCode: 400,
+          body: JSON.stringify({
+            success: false,
+            error: "Form parsing failed",
+          }),
+        });
+      }
+
+      const { name, phone, email, role } = fields;
+
+      const message = `📥 *New Application Received*\n\n👤 *Name*: ${name}\n📞 *Phone*: ${phone}\n📧 *Email*: ${email}\n💼 *Role*: ${role}`;
+      try {
+        await sendTelegramMessage(message);
+
+        const fileFields = ["resume", "id_front", "id_back"];
+
+        for (const field of fileFields) {
+          const file = files[field];
+          if (file && file.filepath && file.originalFilename) {
+            const buffer = await fs.promises.readFile(file.filepath);
+            await sendTelegramFile(
+              file.originalFilename,
+              file.mimetype,
+              buffer
+            );
+          }
+        }
+
+        return resolve({
+          statusCode: 200,
+          body: JSON.stringify({ success: true }),
+        });
+      } catch (err) {
+        console.error("Telegram error:", err);
+        return resolve({
+          statusCode: 500,
+          body: JSON.stringify({
+            success: false,
+            error: "Telegram send failed",
+          }),
+        });
+      }
+    });
   });
 };
 
@@ -96,21 +109,20 @@ function sendTelegramMessage(text) {
   });
 }
 
-function sendTelegramFile({ buffer, filename, mimetype }) {
+function sendTelegramFile(filename, mimetype, buffer) {
   return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append("chat_id", CHAT_ID);
     form.append("document", buffer, {
       filename,
       contentType: mimetype,
-      knownLength: buffer.length,
     });
 
-    const request = https.request(
+    const req = https.request(
       {
-        hostname: "api.telegram.org",
-        path: `/bot${BOT_TOKEN}/sendDocument`,
         method: "POST",
+        host: "api.telegram.org",
+        path: `/bot${BOT_TOKEN}/sendDocument`,
         headers: form.getHeaders(),
       },
       (res) => {
@@ -118,17 +130,20 @@ function sendTelegramFile({ buffer, filename, mimetype }) {
         res.on("data", (chunk) => (data += chunk));
         res.on("end", () => {
           try {
-            const json = JSON.parse(data);
-            if (json.ok) return resolve();
-            reject(new Error("Telegram API error: " + data));
-          } catch {
-            reject(new Error("Invalid Telegram response"));
+            const result = JSON.parse(data);
+            if (result.ok) resolve();
+            else reject(new Error(data));
+          } catch (err) {
+            reject(err);
           }
         });
       }
     );
 
-    request.on("error", reject);
-    form.pipe(request);
+    form.pipe(req);
+
+    req.on("error", reject);
   });
 }
+
+import fs from "fs";
