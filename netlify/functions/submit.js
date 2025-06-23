@@ -23,24 +23,26 @@ export const handler = async (event) => {
       formData[fieldname] = value;
     });
 
-    busboy.on("file", (fieldname, file, filename, encoding, mimetype) => {
+    busboy.on("file", (fieldname, file, info) => {
+      const { filename, encoding, mimeType } = info;
       const buffers = [];
 
       file.on("data", (data) => buffers.push(data));
 
       file.on("end", () => {
         const buffer = Buffer.concat(buffers);
+        console.log(typeof filename, typeof mimeType);
 
         if (
           typeof filename !== "string" ||
           !filename.trim() ||
           !buffer.length ||
-          typeof mimetype !== "string"
+          typeof mimeType !== "string"
         ) {
           console.warn("⚠️ Skipping invalid file:", {
             fieldname,
             filename,
-            mimetype,
+            mimeType,
             size: buffer.length,
           });
           return;
@@ -51,7 +53,7 @@ export const handler = async (event) => {
         files.push({
           fieldname,
           filename,
-          mimetype,
+          mimetype: mimeType,
           buffer,
         });
       });
