@@ -1,21 +1,11 @@
-// /netlify/functions/submit.js
-import { Buffer } from "buffer";
 import { Readable } from "stream";
 import formidable from "formidable";
+import fs from "fs/promises";
 import https from "https";
 import FormData from "form-data";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-
-function bufferToStream(buffer) {
-  return new Readable({
-    read() {
-      this.push(buffer);
-      this.push(null);
-    },
-  });
-}
 
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -27,22 +17,16 @@ export const handler = async (event) => {
 
   const contentType =
     event.headers["content-type"] || event.headers["Content-Type"];
+  const buffer = Buffer.from(
+    event.body,
+    event.isBase64Encoded ? "base64" : "utf8"
+  );
 
-  const form = formidable({
-    multiples: true,
-    keepExtensions: true,
-  });
+  const form = formidable({ multiples: true, keepExtensions: true });
 
-  return new Promise((resolve, reject) => {
-    const stream = bufferToStream(
-      event.isBase64Encoded
-        ? Buffer.from(event.body, "base64")
-        : Buffer.from(event.body, "utf8")
-    );
-
-    stream.headers = {
-      "content-type": contentType,
-    };
+  return new Promise((resolve) => {
+    const stream = Readable.from(buffer);
+    stream.headers = { "content-type": contentType };
 
     form.parse(stream, async (err, fields, files) => {
       if (err) {
@@ -57,17 +41,16 @@ export const handler = async (event) => {
       }
 
       const { name, phone, email, role } = fields;
-
       const message = `📥 *New Application Received*\n\n👤 *Name*: ${name}\n📞 *Phone*: ${phone}\n📧 *Email*: ${email}\n💼 *Role*: ${role}`;
+
       try {
         await sendTelegramMessage(message);
 
         const fileFields = ["resume", "id_front", "id_back"];
-
         for (const field of fileFields) {
           const file = files[field];
-          if (file && file.filepath && file.originalFilename) {
-            const buffer = await fs.promises.readFile(file.filepath);
+          if (file && file.filepath) {
+            const buffer = await fs.readFile(file.filepath);
             await sendTelegramFile(
               file.originalFilename,
               file.mimetype,
@@ -130,8 +113,8 @@ function sendTelegramFile(filename, mimetype, buffer) {
         res.on("data", (chunk) => (data += chunk));
         res.on("end", () => {
           try {
-            const result = JSON.parse(data);
-            if (result.ok) resolve();
+            const json = JSON.parse(data);
+            if (json.ok) resolve();
             else reject(new Error(data));
           } catch (err) {
             reject(err);
@@ -141,9 +124,6 @@ function sendTelegramFile(filename, mimetype, buffer) {
     );
 
     form.pipe(req);
-
     req.on("error", reject);
   });
 }
-
-import fs from "fs";
