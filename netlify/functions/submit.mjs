@@ -89,6 +89,11 @@ function sendTelegramMessage(text) {
 
 function sendTelegramFile(file) {
   return new Promise((resolve, reject) => {
+    if (!file.filename) {
+      console.warn("Skipping file with undefined filename:", file);
+      return resolve(); // Skip and move on
+    }
+
     const form = new FormData();
 
     form.append("chat_id", CHAT_ID);
@@ -109,22 +114,22 @@ function sendTelegramFile(file) {
         let data = "";
         res.on("data", (chunk) => (data += chunk));
         res.on("end", () => {
-          console.log("Telegram API response:", data);
-          const json = JSON.parse(data);
-          if (json.ok) {
-            resolve();
-          } else {
-            reject(new Error(`Telegram API error: ${data}`));
+          console.log("Telegram file response:", data);
+          try {
+            const json = JSON.parse(data);
+            if (json.ok) {
+              resolve();
+            } else {
+              reject(new Error("Telegram error: " + data));
+            }
+          } catch (err) {
+            reject(new Error("Failed to parse Telegram response: " + data));
           }
         });
       }
     );
 
-    request.on("error", (err) => {
-      console.error("Telegram file upload error:", err);
-      reject(err);
-    });
-
+    request.on("error", reject);
     form.pipe(request);
   });
 }
