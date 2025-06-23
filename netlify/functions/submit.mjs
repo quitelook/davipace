@@ -1,4 +1,7 @@
-import { parseMultipartFormData } from "@netlify/functions";
+import Busboy from "busboy";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import https from "https";
 import FormData from "form-data";
 
@@ -7,39 +10,65 @@ const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      body: "Method Not Allowed",
-    };
+    return { statusCode: 405, body: "Method Not Allowed" };
   }
 
-  try {
-    const formData = await parseMultipartFormData(event);
+  return await new Promise((resolve, reject) => {
+    const busboy = Busboy({
+      headers: event.headers,
+    });
 
-    const { name, phone, email, role, resume, id_front, id_back } = formData;
+    const fields = {};
+    const files = [];
 
-    const message = `📥 *New Application Received*\n\n👤 *Name*: ${name}\n📞 *Phone*: ${phone}\n📧 *Email*: ${email}\n💼 *Role*: ${role}`;
-    await sendTelegramMessage(message);
+    busboy.on("field", (fieldname, value) => {
+      fields[fieldname] = value;
+    });
 
-    // Send files if present
-    const fileFields = [resume, id_front, id_back];
-    for (const file of fileFields) {
-      if (file && file.content) {
-        await sendTelegramFile(file.filename, file.contentType, file.content);
+    busboy.on("file", (fieldname, file, filename, encoding, mimetype) => {
+      const filepath = path.join(os.tmpdir(), filename);
+      const writeStream = fs.createWriteStream(filepath);
+
+      file.pipe(writeStream);
+
+      file.on("end", () => {
+        files.push({
+          fieldname,
+          filepath,
+          filename,
+          mimetype,
+        });
+      });
+    });
+
+    busboy.on("finish", async () => {
+      const message = `📥 *New Application Received*\n\n👤 *Name*: ${fields.name}\n📞 *Phone*: ${fields.phone}\n📧 *Email*: ${fields.email}\n💼 *Role*: ${fields.role}`;
+
+      try {
+        await sendTelegramMessage(message);
+
+        for (const file of files) {
+          const buffer = fs.readFileSync(file.filepath);
+          await sendTelegramFile(file.filename, file.mimetype, buffer);
+        }
+
+        resolve({
+          statusCode: 200,
+          body: JSON.stringify({ success: true }),
+        });
+      } catch (error) {
+        console.error("Error sending Telegram message:", error);
+        resolve({
+          statusCode: 500,
+          body: JSON.stringify({ success: false, error: "Failed to send" }),
+        });
       }
-    }
+    });
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ success: true }),
-    };
-  } catch (err) {
-    console.error("Error:", err);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ success: false, error: "Upload failed" }),
-    };
-  }
+    const encoding = event.isBase64Encoded ? "base64" : "utf8";
+    const buffer = Buffer.from(event.body, encoding);
+    busboy.end(buffer);
+  });
 };
 
 function sendTelegramMessage(text) {
@@ -50,7 +79,7 @@ function sendTelegramMessage(text) {
   return new Promise((resolve, reject) => {
     https
       .get(url, (res) => {
-        res.on("data", () => {}); // discard response body
+        res.on("data", () => {});
         res.on("end", resolve);
       })
       .on("error", reject);
@@ -61,10 +90,7 @@ function sendTelegramFile(filename, mimetype, buffer) {
   return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append("chat_id", CHAT_ID);
-    form.append("document", buffer, {
-      filename,
-      contentType: mimetype,
-    });
+    form.append("document", buffer, { filename, contentType: mimetype });
 
     const req = https.request(
       {
